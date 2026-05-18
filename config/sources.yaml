@@ -1,0 +1,54 @@
+# AWS documentation sources to index. Each entry points at an awsdocs GitHub
+# repository (which AWS publishes officially) and the subpath under which the
+# user-guide markdown lives.
+#
+# IMPORTANT: AWS rotated the *default* branch on many of these repos to
+# `archived` (mostly empty) while the real content stays on `main`. We pin
+# `branch: main` explicitly so a shallow clone gets the docs, not the
+# placeholder. Add/remove entries to expand coverage.
+#
+# Repos last verified to have content on 2026-05-18:
+#   amazon-s3-userguide          ✓ 618 files
+#   iam-user-guide               ✓ 402 files
+#   amazon-rds-user-guide        ✓ 669 files
+#   amazon-dynamodb-developer-guide ✓ 515 files
+#   amazon-sqs-developer-guide   ✓ 118 files
+#   amazon-cloudfront-developer-guide ✓ 207 files
+#   amazon-ec2-user-guide        ✗ empty
+#   aws-lambda-developer-guide   ✗ thinned
+#   amazon-bedrock-user-guide    ✗ repo deleted
+sources:
+  - service: s3
+    display_name: Amazon S3
+    repo: https://github.com/awsdocs/amazon-s3-userguide.git
+    branch: main
+    subpath: doc_source
+    base_doc_url: https://docs.aws.amazon.com/AmazonS3/latest/userguide/
+
+  - service: iam
+    display_name: AWS IAM
+    repo: https://github.com/awsdocs/iam-user-guide.git
+    branch: main
+    subpath: doc_source
+    base_doc_url: https://docs.aws.amazon.com/IAM/latest/UserGuide/
+
+  - service: dynamodb
+    display_name: Amazon DynamoDB
+    repo: https://github.com/awsdocs/amazon-dynamodb-developer-guide.git
+    branch: main
+    subpath: doc_source
+    base_doc_url: https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/
+
+  - service: rds
+    display_name: Amazon RDS
+    repo: https://github.com/awsdocs/amazon-rds-user-guide.git
+    branch: main
+    subpath: doc_source
+    base_doc_url: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/
+
+  - service: sqs
+    display_name: Amazon SQS
+    repo: https://github.com/awsdocs/amazon-sqs-developer-guide.git
+    branch: main
+    subpath: doc_source
+    base_doc_url: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/

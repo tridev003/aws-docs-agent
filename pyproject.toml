@@ -1,0 +1,57 @@
+[project]
+name = "aws-docs-agent"
+version = "0.1.0"
+description = "Agentic RAG chatbot over AWS documentation, built on Bedrock + LangGraph."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+authors = [{ name = "Tridev Singh Rao", email = "tridevsinghrao@gmail.com" }]
+license = { text = "MIT" }
+dependencies = [
+    "boto3>=1.35.0",
+    "botocore>=1.35.0",
+    "langgraph>=0.2.40",
+    "langchain-core>=0.3.0",
+    "langchain-aws>=0.2.0",
+    "faiss-cpu>=1.8.0",
+    "numpy>=1.26.0,<2.0",
+    "streamlit>=1.39.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.5.0",
+    "tenacity>=9.0.0",
+    "tiktoken>=0.8.0",
+    "markdown-it-py>=3.0.0",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11",
+]
+
+[project.scripts]
+aws-docs-ingest = "aws_docs_agent.rag.ingest:main"
+aws-docs-chat = "aws_docs_agent.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

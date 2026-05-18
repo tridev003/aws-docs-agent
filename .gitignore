@@ -1,0 +1,36 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+*.log
+
+# Vector index artifacts (build with `make ingest`)
+data/index/
+data/raw/
+data/chunked/
+
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/*.tfvars
+!infra/terraform.tfvars.example
+infra/.terraform.tfstate.lock.info
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
