@@ -182,7 +182,7 @@ actually works.
   inference-profile ARNs, since cross-region inference is required for
   Claude 4.x. S3 read on the index bucket only.
 - **Two-phase apply.** ECS won't start a task if the image isn't in
-  ECR yet. The root module gates ECS behind `create_app_runner`
+  ECR yet. The root module gates ECS behind `deploy_app`
   (variable name kept from the App Runner attempt), so first apply
   provisions ECR + S3 + IAM, you push the image, then second apply
   spins up ECS.

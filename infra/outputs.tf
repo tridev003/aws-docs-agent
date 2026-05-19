@@ -34,7 +34,7 @@ output "next_steps" {
          INDEX_S3_BUCKET=${module.storage.bucket_name} make ingest
 
     3) Re-apply with the deploy gate on:
-         terraform apply -var "create_app_runner=true"
+         terraform apply -var "deploy_app=true"
 
     The service URL will show up as the `app_url` output.
   EOT

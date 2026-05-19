@@ -10,7 +10,7 @@ import logging
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import (
@@ -61,7 +61,7 @@ def build_agent_graph(retriever: Retriever):
             content=render_system_prompt(
                 max_tool_calls=settings.agent_max_tool_calls,
                 service_list=toolkit.indexed_services(),
-                today=datetime.now(timezone.utc).date().isoformat(),
+                today=datetime.now(UTC).date().isoformat(),
             )
         )
         history = [sys_msg, *state["messages"]]

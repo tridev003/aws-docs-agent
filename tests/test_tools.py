@@ -3,10 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from aws_docs_agent.agent.tools import ToolKit, _fetch_aws_doc
-from aws_docs_agent.rag.retriever import RetrievedChunk, Retriever
+from aws_docs_agent.rag.retriever import RetrievedChunk
 
 
 class _StubIndex:

@@ -26,14 +26,14 @@ module "iam" {
 }
 
 # ---- ECS Fargate + ALB: public chat UI -------------------------------------
-# Gated by `create_app_runner` (kept for backwards compat with the var name)
+# Gated by `deploy_app` (kept for backwards compat with the var name)
 # so the first apply provisions ECR + S3 + IAM, the image is pushed, then a
 # second apply spins up ECS pointing at the now-present image.
 #
 # Why ECS+ALB and not App Runner: App Runner's envoy proxy doesn't pass
 # WebSocket upgrades, which Streamlit requires for its reactive UI.
 module "ecs" {
-  count  = var.create_app_runner ? 1 : 0
+  count  = var.deploy_app ? 1 : 0
   source = "./modules/ecs_alb"
 
   name_prefix            = local.name_prefix
@@ -52,7 +52,7 @@ module "ecs" {
 # Lets us serve HTTPS without owning a domain (uses *.cloudfront.net with the
 # AWS-managed cert). ALB stays on HTTP-only inside.
 module "cdn" {
-  count  = var.create_app_runner ? 1 : 0
+  count  = var.deploy_app ? 1 : 0
   source = "./modules/cdn"
 
   name_prefix  = local.name_prefix

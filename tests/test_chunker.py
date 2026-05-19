@@ -4,8 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-import pytest
-
 from aws_docs_agent.rag.chunker import (
     Chunk,
     _split_sections,

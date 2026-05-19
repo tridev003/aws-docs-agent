@@ -10,10 +10,10 @@ owner_email  = "you@example.com"
 bedrock_chat_model_id  = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 bedrock_embed_model_id = "amazon.titan-embed-text-v2:0"
 
-# Leave create_app_runner = false for the first apply (provisions ECR + S3 +
+# Leave deploy_app = false for the first apply (provisions ECR + S3 +
 # IAM). After pushing the first image, flip it on:
-#   terraform apply -var "create_app_runner=true"
-create_app_runner   = false
+#   terraform apply -var "deploy_app=true"
+deploy_app   = false
 container_image_tag = "latest"
 
 app_runner_cpu          = "1 vCPU"

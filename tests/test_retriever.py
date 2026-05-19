@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aws_docs_agent.rag.retriever import VectorIndex, Retriever
+from aws_docs_agent.rag.retriever import Retriever, VectorIndex
 
 
 def _vec(seed: int, dim: int = 8) -> list[float]:

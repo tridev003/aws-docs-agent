@@ -79,11 +79,11 @@ make push-image                       # builds and pushes the container
 INDEX_S3_BUCKET=$(terraform -chdir=infra output -raw index_bucket) make ingest
 
 cd infra
-terraform apply -var "create_app_runner=true"   # spins up ECS+ALB (phase 2)
+terraform apply -var "deploy_app=true"   # spins up ECS+ALB (phase 2)
 terraform output app_url              # public URL
 ```
 
-To tear down: `terraform destroy -var "create_app_runner=true"`. The ALB is
+To tear down: `terraform destroy -var "deploy_app=true"`. The ALB is
 the dominant cost line item; destroying brings it back to ~$0.
 
 ### Estimated cost
@@ -143,7 +143,7 @@ src/aws_docs_agent/
   ui/streamlit_app.py   # chat UI with live agent trace
   cli.py                # REPL for quick smoke tests
 
-infra/                  # Terraform: S3, ECR, IAM, ECS Fargate + ALB
+infra/                  # Terraform: S3, ECR, IAM, ECS Fargate + ALB, CloudFront
 docker/                 # multi-stage Dockerfile, linux/amd64
 tests/                  # pytest, all offline (no Bedrock calls)
 ```

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import Any
 
 import httpx
 from langchain_core.tools import StructuredTool

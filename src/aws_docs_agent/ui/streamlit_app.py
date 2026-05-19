@@ -11,9 +11,9 @@ SRC_DIR = Path(__file__).resolve().parents[2]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import streamlit as st
+import streamlit as st  # noqa: E402 (must follow the sys.path tweak above)
 
-from aws_docs_agent.agent.graph import AgentSession, TraceStep
+from aws_docs_agent.agent.graph import AgentSession, TraceStep  # noqa: E402
 
 # Maps trace event kinds to (icon, fallback Streamlit color label).
 TRACE_ICONS: dict[str, str] = {

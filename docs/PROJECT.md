@@ -32,11 +32,13 @@ The system is built and deployed entirely on AWS:
 - **Amazon Bedrock** for both the LLM (Claude Sonnet 4.5) and embeddings
   (Titan v2)
 - **Amazon ECS Fargate + Application Load Balancer** for the public web app
+- **Amazon CloudFront** in front of the ALB to serve HTTPS without a
+  custom domain (uses the AWS-managed `*.cloudfront.net` cert)
 - **Amazon ECR** for the container image
 - **Amazon S3** as the persistent store for the FAISS index
 - **AWS IAM** roles, scoped to the specific model ARNs and bucket prefix
 
-The entire stack is described in Terraform, in four reusable modules.
+The entire stack is described in Terraform, in five reusable modules.
 
 ---
 
@@ -311,11 +313,11 @@ Then phase 2:
 
 ```bash
 cd infra
-terraform apply -var "create_app_runner=true"
+terraform apply -var "deploy_app=true"
 terraform output app_url                  # public URL
 ```
 
-Tear-down: `terraform destroy -var "create_app_runner=true"`.
+Tear-down: `terraform destroy -var "deploy_app=true"`.
 
 ### 3.5 Costs (rough, 30-day always-on)
 
@@ -414,13 +416,14 @@ aws-docs-agent/
     cli.py                   REPL for quick smoke tests
 
   infra/
-    main.tf                  composes the four modules
+    main.tf                  composes the five modules
     variables.tf, outputs.tf, providers.tf, versions.tf
     modules/
       storage/               S3 bucket for FAISS index
       ecr/                   ECR repository
       iam/                   workload role + ECS execution + ECS task role
       ecs_alb/               ECS Fargate cluster/service/task + ALB
+      cdn/                   CloudFront distribution for HTTPS
 
   docker/Dockerfile          multi-stage Python 3.11 image
   config/sources.yaml        which awsdocs repos to index

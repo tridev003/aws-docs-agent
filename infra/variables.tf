@@ -77,11 +77,15 @@ variable "app_runner_max_instances" {
   default     = 2
 }
 
-variable "create_app_runner" {
+variable "deploy_app" {
   description = <<-EOT
-    If false, the stack creates ECR + S3 + IAM only. Set true after you have
-    pushed the first image to ECR, App Runner refuses to create a service
-    when the image is missing.
+    Two-phase apply switch:
+      false: provisions ECR + S3 + IAM only (run this first).
+      true:  also stands up the ECS service + ALB + CloudFront pointing at
+             the image you pushed to ECR after phase 1.
+
+    Avoids the "image not found" failure mode you hit if ECS tries to start
+    a task against an empty ECR repo.
   EOT
   type        = bool
   default     = false
