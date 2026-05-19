@@ -47,3 +47,14 @@ module "ecs" {
   index_s3_bucket        = module.storage.bucket_name
   index_s3_prefix        = local.index_prefix
 }
+
+# ---- CloudFront: HTTPS in front of the ALB ---------------------------------
+# Lets us serve HTTPS without owning a domain (uses *.cloudfront.net with the
+# AWS-managed cert). ALB stays on HTTP-only inside.
+module "cdn" {
+  count  = var.create_app_runner ? 1 : 0
+  source = "./modules/cdn"
+
+  name_prefix  = local.name_prefix
+  alb_dns_name = module.ecs[0].alb_dns_name
+}

@@ -14,8 +14,13 @@ output "index_prefix" {
 }
 
 output "app_url" {
+  value       = try(module.cdn[0].url, null)
+  description = "Public HTTPS URL of the deployed Streamlit app (CloudFront)."
+}
+
+output "alb_url" {
   value       = try(module.ecs[0].service_url, null)
-  description = "Public URL of the deployed Streamlit app (null until create_app_runner=true)."
+  description = "Direct ALB URL (HTTP only; the CloudFront URL above is what users should hit)."
 }
 
 output "next_steps" {

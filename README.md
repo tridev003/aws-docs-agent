@@ -7,9 +7,9 @@ can verify what the model claimed.
 
 Built with LangGraph + Bedrock (Claude Sonnet 4.5 for chat, Titan v2 for
 embeddings), FAISS for retrieval, Streamlit for the UI, and Terraform for the
-AWS infra (ECS Fargate + ALB + ECR + S3).
+AWS infra (ECS Fargate + ALB + CloudFront + ECR + S3).
 
-**Live demo:** <http://aws-docs-agent-dev-alb-1873847918.us-east-1.elb.amazonaws.com>
+**Live demo:** <https://d23387gokj24ge.cloudfront.net>
 
 ## Why this stack
 
@@ -92,6 +92,7 @@ the dominant cost line item; destroying brings it back to ~$0.
 | ---------------- | ------------------------------- | -------- |
 | ECS Fargate      | 1× 1vCPU / 2GB, always-on 30d   | ~$30     |
 | ALB              | 1 ALB, low traffic, 30d         | ~$18     |
+| CloudFront       | NA+EU edges, low traffic        | <$1      |
 | Bedrock (Claude) | ~50 turns × ~5k tokens          | ~$2      |
 | Bedrock (Titan)  | One-off ingest, ~6k chunks      | <$0.10   |
 | S3 + ECR         | ~50 MB                          | <$0.10   |

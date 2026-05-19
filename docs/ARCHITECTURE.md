@@ -7,13 +7,15 @@ you want context on the design choices.
 
 ```
             +--------------------------------------------------+
-  browser   |              ALB (HTTP, public)                  |
+  browser   |    CloudFront (HTTPS, *.cloudfront.net cert)     |
    |        |                       |                          |
-   v        |             stickysession routing                |
- chat UI    |                       v                          |
-            |   +---------------------------------------+      |
-   answer + |   |  ECS Fargate task (Streamlit + agent) |      |
-   sources  |   |    LangGraph agent loop               |      |
+   v        |                       v                          |
+ chat UI    |              ALB (HTTP, sticky sessions)         |
+            |                       |                          |
+   answer + |                       v                          |
+   sources  |   +---------------------------------------+      |
+            |   |  ECS Fargate task (Streamlit + agent) |      |
+            |   |    LangGraph agent loop               |      |
             |   |    3 tools: search, fetch, list       |      |
             |   |    FAISS in-process (loaded from S3)  |      |
             |   +---------------------------------------+      |
@@ -144,7 +146,7 @@ write tools would expand the threat model and obscure intent.
 
 ## Infrastructure
 
-Terraform, four modules (`storage`, `ecr`, `iam`, `ecs_alb`).
+Terraform, five modules (`storage`, `ecr`, `iam`, `ecs_alb`, `cdn`).
 
 ### Why ECS Fargate + ALB and not App Runner
 
@@ -223,3 +225,21 @@ Useful context for whoever picks this up:
   as cleanly though.
 - **Auth.** Public URL. Stick Cognito + an ALB listener rule in front
   of it before exposing to anyone untrusted.
+
+### HTTPS via CloudFront
+
+ALB names like `aws-docs-agent-dev-alb-*.elb.amazonaws.com` can't get a
+free ACM cert (AWS only issues certs for domains you own). To get HTTPS
+without buying a domain, a CloudFront distribution sits in front of the
+ALB using the AWS-managed `*.cloudfront.net` cert. Caveats for the
+WebSocket-heavy Streamlit traffic:
+
+- Cache policy: `Managed-CachingDisabled` (don't cache anything).
+- Origin request policy: `Managed-AllViewer` (forward every header and
+  cookie the browser sends, including the WebSocket upgrade headers and
+  the ALB sticky-session cookie).
+- Viewer protocol: `redirect-to-https`, so plain HTTP gets bumped up.
+- The ALB origin stays HTTP-only inside; only the edge talks TLS.
+
+This adds <$1/mo at demo traffic and removes the "Not secure" browser
+warning entirely.

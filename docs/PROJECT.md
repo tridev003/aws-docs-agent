@@ -3,7 +3,7 @@
 A walkthrough of the system, end to end. If you read only one document in
 this repo, read this one.
 
-**Live demo:** <http://aws-docs-agent-dev-alb-1873847918.us-east-1.elb.amazonaws.com>
+**Live demo:** <https://d23387gokj24ge.cloudfront.net>
 **Source:** <https://github.com/tridev003/aws-docs-agent>
 
 ---
@@ -518,7 +518,7 @@ Useful war stories for anyone iterating on this:
 - ✅ **Architecture / design explanation:** `docs/ARCHITECTURE.md`, this
   document, and inline module docstrings
 - ✅ **Deployed link:**
-  <http://aws-docs-agent-dev-alb-1873847918.us-east-1.elb.amazonaws.com>
+  <https://d23387gokj24ge.cloudfront.net>
 
 ---
 
