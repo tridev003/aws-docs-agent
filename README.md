@@ -2,34 +2,36 @@
 
 A chatbot that answers AWS questions by retrieving from the official AWS user
 guides. The agent decides when to search, what to search for, and when it has
-enough material to write an answer. Citations are shown alongside each
-response so you can verify what the model claimed.
+enough material to answer. Citations are shown alongside each response so you
+can verify what the model claimed.
 
 Built with LangGraph + Bedrock (Claude Sonnet 4.5 for chat, Titan v2 for
 embeddings), FAISS for retrieval, Streamlit for the UI, and Terraform for the
-AWS infra.
+AWS infra (ECS Fargate + ALB + ECR + S3).
 
-## Why
+**Live demo:** <http://aws-docs-agent-dev-alb-1873847918.us-east-1.elb.amazonaws.com>
 
-Take-home for an interview. Brief was: build an agentic chatbot over AWS
-docs with RAG, with IaC for the deploy. I optimized the stack for "actually
-works end-to-end on a free-ish AWS account":
+## Why this stack
 
-- Bedrock for both chat and embeddings, so everything stays in one account.
-- FAISS persisted to S3 (instead of OpenSearch Serverless, which costs ~$700/mo even idle).
-- App Runner instead of ECS+ALB, so I don't have to wrangle a VPC.
-- Streamlit because building a React frontend wasn't the point of the assignment.
+- **Bedrock** for both chat and embeddings, so everything stays in one
+  AWS account.
+- **FAISS persisted to S3** instead of OpenSearch Serverless (which costs
+  ~$700/mo even idle). Trade-off: doesn't horizontally scale, fine here.
+- **ECS Fargate + ALB** instead of App Runner. App Runner's envoy proxy
+  doesn't pass WebSocket upgrades, which Streamlit requires for its
+  reactive UI. I tried App Runner first and it failed; details in the
+  bug list below.
+- **Streamlit** because the focus is the agent, not a custom frontend.
 
-This is not a production system. It's a working prototype. See
-`docs/ARCHITECTURE.md` if you want my reasoning on each choice.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the longer reasoning.
 
 ## Quick start (local)
 
-You'll need Python 3.11+, an AWS account with Bedrock enabled, and `aws`
-configured (`aws configure` or SSO, doesn't matter which).
+Need Python 3.11+, an AWS account with Bedrock available, and `aws` configured
+(`aws configure` or SSO, doesn't matter which).
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/tridev003/aws-docs-agent.git
 cd aws-docs-agent
 
 # Editable install. If you don't have python 3.11, `uv python install 3.11`
@@ -40,8 +42,8 @@ pip install -e ".[dev]"
 # Sanity check
 pytest
 
-# Build the FAISS index. Clones 5 awsdocs repos, embeds ~6k chunks via Titan,
-# takes about 4-5 minutes. Costs ~$0.06.
+# Build the FAISS index. Clones 5 awsdocs repos, embeds ~6k chunks via
+# Titan, takes about 4-5 minutes. Costs ~$0.06.
 make ingest
 
 # Run the UI
@@ -52,7 +54,7 @@ Open http://localhost:8501 and ask it something. Indexed services: S3, IAM,
 DynamoDB, RDS, SQS. Anything outside that scope, the agent should say so
 explicitly instead of guessing.
 
-There's also a tiny CLI if you don't feel like opening the browser:
+A tiny CLI is also available:
 
 ```bash
 aws-docs-chat
@@ -60,9 +62,8 @@ aws-docs-chat
 
 ## Deploy to AWS
 
-Two-phase apply. App Runner refuses to create a service if the image isn't
-already in ECR, so we build the ECR repo first, push, then turn the service
-on.
+Two-phase apply. ECS refuses to start a task if the image isn't in ECR yet,
+so we provision ECR + S3 + IAM first, push the image, then turn on ECS.
 
 ```bash
 cd infra
@@ -70,7 +71,7 @@ cp terraform.tfvars.example terraform.tfvars
 # edit owner_email at minimum
 
 terraform init
-terraform apply                       # creates ECR + S3 + IAM
+terraform apply                       # creates ECR + S3 + IAM (phase 1)
 
 cd ..
 make push-image                       # builds and pushes the container
@@ -78,27 +79,27 @@ make push-image                       # builds and pushes the container
 INDEX_S3_BUCKET=$(terraform -chdir=infra output -raw index_bucket) make ingest
 
 cd infra
-terraform apply -var "create_app_runner=true"
-terraform output app_runner_url       # public URL
+terraform apply -var "create_app_runner=true"   # spins up ECS+ALB (phase 2)
+terraform output app_url              # public URL
 ```
 
-To tear it down: `terraform destroy`. Do that, please. App Runner is
-pay-per-second and I forgot to once.
+To tear down: `terraform destroy -var "create_app_runner=true"`. The ALB is
+the dominant cost line item; destroying brings it back to ~$0.
 
 ### Estimated cost
 
-App Runner is the dominant line item. Everything else rounds to zero at
-demo traffic.
+| Service          | Driver                          | Estimate |
+| ---------------- | ------------------------------- | -------- |
+| ECS Fargate      | 1× 1vCPU / 2GB, always-on 30d   | ~$30     |
+| ALB              | 1 ALB, low traffic, 30d         | ~$18     |
+| Bedrock (Claude) | ~50 turns × ~5k tokens          | ~$2      |
+| Bedrock (Titan)  | One-off ingest, ~6k chunks      | <$0.10   |
+| S3 + ECR         | ~50 MB                          | <$0.10   |
+| **Total**        |                                 | **~$50/mo** |
 
-| Service          | Driver                       | Estimate |
-| ---------------- | ---------------------------- | -------- |
-| App Runner       | 1× 1vCPU/2GB, always-on, 30d | ~$60     |
-| Bedrock (Claude) | ~50 turns, ~5k tok each      | ~$2      |
-| Bedrock (Titan)  | One-off ingest               | <$0.10   |
-| S3 + ECR         | ~50 MB                       | <$0.10   |
-
-`app_runner_min_instances = 0` scales the service to zero between sessions
-but the first message after idle takes ~30 seconds (FAISS reloads from S3).
+The ALB is the surprise tax; if you wanted to shave that, the lighter
+alternative is **Lightsail Containers** (~$10/mo for nano) which also
+supports WebSocket, but it doesn't fit IaC patterns as cleanly.
 
 ## Configuration
 
@@ -122,9 +123,9 @@ half-hour to figure that out.
 To add a service to the index, edit `config/sources.yaml` and re-run
 ingestion. There's a `branch:` field on each source because AWS rotated
 some of the awsdocs repos' default branches to `archived` (empty) while
-the real content stayed on `main`. Another confused half-hour.
+the real content stayed on `main`.
 
-## What's in the box
+## Repo layout
 
 ```
 src/aws_docs_agent/
@@ -137,12 +138,12 @@ src/aws_docs_agent/
   agent/
     prompts.py          # one system prompt template
     tools.py            # 3 tools: search, fetch, list_services
-    graph.py            # LangGraph workflow + AgentSession
-  ui/streamlit_app.py   # chat UI
-  cli.py                # smoke-test REPL
+    graph.py            # LangGraph workflow + AgentSession + TraceStep
+  ui/streamlit_app.py   # chat UI with live agent trace
+  cli.py                # REPL for quick smoke tests
 
-infra/                  # Terraform: S3, ECR, IAM, App Runner
-docker/                 # multi-stage Dockerfile
+infra/                  # Terraform: S3, ECR, IAM, ECS Fargate + ALB
+docker/                 # multi-stage Dockerfile, linux/amd64
 tests/                  # pytest, all offline (no Bedrock calls)
 ```
 
@@ -153,44 +154,48 @@ make test       # pytest
 make lint       # ruff
 ```
 
-Tests are deliberately offline-safe. The chunker is pure Python, the
-retriever round-trips FAISS in-process, and the tool tests stub the
-retriever so no Bedrock calls leave the box. There is no end-to-end test
-that hits live Bedrock; I tried with `moto` early on and gave up after
-realizing it doesn't mock the Converse API.
+The test suite is offline. The chunker is pure Python, the retriever
+round-trips FAISS in-process, and the tool tests stub the retriever so no
+Bedrock calls leave the box. There is no end-to-end test that hits live
+Bedrock; I tried with moto early on and gave up after realizing it doesn't
+mock the Converse API.
 
 ## Known limitations
 
-Stuff I deliberately didn't do because this is an interview submission, not
-a production app:
+Stuff that's deliberately not in this build:
 
-- No auth. The App Runner URL is public.
+- No auth on the public URL. Stick Cognito + an ALB listener rule in
+  front before sharing it with anyone you don't trust.
 - No streaming for the final answer (the tool-call trace does stream).
-- The index is a single FAISS file. Fine for ~6k chunks, won't work for a
+- Index is a single FAISS file. Fine for ~6k chunks, won't work for a
   big multi-tenant deployment.
-- Conversation history lives in process memory. Restart the container and
-  it's gone.
-- No retry on partial ingest failures. If a clone or an embedding fails
+- Conversation history lives in process memory. Restart the container
+  and it's gone.
+- No retry on partial ingest failures. If a clone or embedding fails
   mid-run, you re-run the whole thing.
 
-## Bugs I hit while building
+## Things that broke while building
 
 Useful to know if you're iterating on this:
 
-- Claude 3.5 Sonnet v2 on Bedrock is end-of-life; the obvious model ID
-  fails. Use a current model and the `us.` inference-profile prefix.
-- The awsdocs GitHub repos have an `archived` default branch with no content.
-  Pin `branch: main` when cloning.
-- Some `awsdocs/*` repos are gone entirely (Bedrock user guide, EC2). I
-  swapped the source list to ones that still have content.
-- AWS doc markdown has LaTeX-style escapes (`\.`, `\(`) and `<a name="..."></a>`
-  anchor tags inside headers. The chunker strips both, otherwise they pollute
-  embeddings and citation titles.
-- LangGraph's `recursion_limit` is the right way to cap tool loops. I
-  originally wrote a `force_finalize` node that injected a stop message,
-  which Anthropic's Converse API rejects when there's an unresolved
-  `tool_use` block. Switched to recursion_limit + a graceful fallback
-  message.
+- **Claude 3.5 Sonnet v2 on Bedrock is end-of-life.** The obvious model
+  ID returns ResourceNotFoundException. Use a current model and the
+  `us.` inference-profile prefix.
+- **App Runner doesn't support WebSocket upgrades.** Streamlit needs
+  WebSocket for its reactive UI; App Runner's envoy proxy responds 403
+  on `Upgrade: websocket`. Hence ECS + ALB.
+- **awsdocs default branches got rotated to `archived`.** Pin
+  `branch: main` per source when cloning.
+- **Three of the awsdocs repos I planned to use are gone or empty.**
+  Swapped `sources.yaml` to ones that still have content.
+- **AWS doc markdown contains LaTeX-style escapes** (`\.`, `\(`) and
+  `<a name="..."></a>` anchor tags inside headers. The chunker has a
+  cleanup pass for both, otherwise they pollute embeddings and citation
+  titles.
+- **LangGraph `recursion_limit` is the right way to cap tool loops.** I
+  originally wrote a `force_finalize` node that injected a stop message
+  mid-conversation, which Anthropic's Converse API rejects when there's
+  an unresolved `tool_use` block.
 
 ## License
 

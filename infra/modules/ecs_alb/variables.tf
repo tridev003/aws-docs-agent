@@ -1,6 +1,6 @@
-variable "service_name" {
+variable "name_prefix" {
   type        = string
-  description = "App Runner service name."
+  description = "Prefix for resource names."
 }
 
 variable "aws_region" {
@@ -8,8 +8,7 @@ variable "aws_region" {
 }
 
 variable "image_repository_url" {
-  type        = string
-  description = "ECR repository URL (without tag)."
+  type = string
 }
 
 variable "image_tag" {
@@ -17,34 +16,34 @@ variable "image_tag" {
   default = "latest"
 }
 
-variable "access_role_arn" {
+variable "execution_role_arn" {
   type        = string
-  description = "IAM role for App Runner to pull from ECR."
+  description = "ECS task execution role (ECR pull + CloudWatch logs)."
 }
 
-variable "instance_role_arn" {
+variable "task_role_arn" {
   type        = string
-  description = "IAM role assumed by the running container."
+  description = "ECS task role (Bedrock + S3 perms for the running container)."
 }
 
 variable "cpu" {
-  type    = string
-  default = "1 vCPU"
+  type    = number
+  default = 1024 # 1 vCPU
 }
 
 variable "memory" {
-  type    = string
-  default = "2 GB"
+  type    = number
+  default = 2048 # 2 GB
 }
 
-variable "min_instances" {
+variable "desired_count" {
   type    = number
   default = 1
 }
 
-variable "max_instances" {
+variable "container_port" {
   type    = number
-  default = 2
+  default = 8501
 }
 
 variable "bedrock_chat_model_id" {
@@ -66,7 +65,7 @@ variable "index_s3_prefix" {
 
 variable "agent_max_tool_calls" {
   type    = number
-  default = 6
+  default = 10
 }
 
 variable "agent_top_k" {

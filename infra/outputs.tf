@@ -13,8 +13,8 @@ output "index_prefix" {
   description = "S3 key prefix under which faiss.index / metadata.jsonl / manifest.json live."
 }
 
-output "app_runner_url" {
-  value       = try(module.app_runner[0].service_url, null)
+output "app_url" {
+  value       = try(module.ecs[0].service_url, null)
   description = "Public URL of the deployed Streamlit app (null until create_app_runner=true)."
 }
 
@@ -28,9 +28,9 @@ output "next_steps" {
     2) Run ingestion locally and upload the index to the bucket:
          INDEX_S3_BUCKET=${module.storage.bucket_name} make ingest
 
-    3) Re-apply with the App Runner gate on:
-         terraform apply -var "create_app_runner=true" -var "owner_email=${var.owner_email}"
+    3) Re-apply with the deploy gate on:
+         terraform apply -var "create_app_runner=true"
 
-    The service URL will show up as the `app_runner_url` output.
+    The service URL will show up as the `app_url` output.
   EOT
 }

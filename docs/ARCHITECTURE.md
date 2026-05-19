@@ -1,43 +1,51 @@
-# Architecture notes
+# Architecture
 
-Why each piece is the way it is. Written for the interview panel so they
-don't have to read all the code.
-
-This is a take-home prototype, not a production system. Anywhere I talk
-about trade-offs, I'm not implying the chosen path is right at scale,
-only that it was right for the size and time budget of this submission.
+Why each piece is the way it is. Read this before diving into the code if
+you want context on the design choices.
 
 ## The picture
 
 ```
             +--------------------------------------------------+
-  browser   |              App Runner (public)                 |
-   |        |                                                  |
-   v        |  Streamlit  --->  LangGraph agent loop           |
- chat UI    |       ^             |                            |
-            |       |             v                            |
-   answer + |       |          3 tools                         |
-   sources  |       |          (search, fetch, list)           |
-            |       |             |                            |
-            +-------|-------------|----------------------------+
-                    |             v
-                    |    +---------------+
-                    |    | FAISS (in-mem)|<--- loads on boot
-                    |    +-------+-------+
-                    |            |
-                    |            v
-                    |        +-------+
-                    |        |  S3   |  <--- `make ingest` uploads
-                    |        +-------+
-                    |
-              Bedrock APIs:
-                Claude Sonnet 4.5 (chat)
-                Titan v2 (embeddings)
+  browser   |              ALB (HTTP, public)                  |
+   |        |                       |                          |
+   v        |             stickysession routing                |
+ chat UI    |                       v                          |
+            |   +---------------------------------------+      |
+   answer + |   |  ECS Fargate task (Streamlit + agent) |      |
+   sources  |   |    LangGraph agent loop               |      |
+            |   |    3 tools: search, fetch, list       |      |
+            |   |    FAISS in-process (loaded from S3)  |      |
+            |   +---------------------------------------+      |
+            |                       |                          |
+            +-----------------------|--------------------------+
+                                    v
+                ┌───────────────────┬──────────────────┐
+                │                   │                  │
+                ▼                   ▼                  ▼
+     ┌────────────────┐    ┌────────────────┐  ┌────────────────┐
+     │  Bedrock Chat  │    │ Bedrock Embed  │  │ docs.aws...    │
+     │ Claude Sonnet  │    │  Titan v2 1k-d │  │ (fallback only │
+     │     4.5        │    │                │  │  via fetch tool)│
+     └────────────────┘    └────────────────┘  └────────────────┘
+                                  ▲
+                                  │ on container boot
+                            ┌─────┴─────┐
+                            │    S3     │
+                            │ FAISS idx │
+                            └───────────┘
+                                  ▲
+                                  │ make ingest
+                            ┌─────┴─────────────────────────┐
+                            │ Ingestion pipeline (local job)│
+                            │ clone awsdocs -> chunk ->     │
+                            │ embed -> FAISS -> upload S3   │
+                            └───────────────────────────────┘
 ```
 
 ## The agent loop
 
-LangGraph compiles to a tiny state machine with two real nodes (`agent`
+LangGraph compiles to a small state machine with two real nodes (`agent`
 and `tools`):
 
 ```
@@ -46,24 +54,27 @@ START -> agent --(tool calls?)--> tools -> agent ...
                 +--(no tool calls)--> END
 ```
 
-The graph state is just the message history. Everything else (retrieved
-sources, the per-turn trace) is derived from the messages by the UI
-layer.
+State is the message history. Everything else (retrieved sources, the
+per-turn trace events) is derived from the messages.
 
-I picked LangGraph over a hand-rolled ReAct loop because:
+LangGraph over a hand-rolled ReAct loop because:
 
 1. Conditional edges are clearer than parsing `Thought:`/`Action:` lines.
-2. The graph compiles, so the state schema is checked once instead of
-   at every tool call.
-3. `recursion_limit` is the standard way to cap loops, which matters
-   because Anthropic's Converse API will reject any attempt to inject a
+2. The graph compiles, so the state schema is checked once.
+3. `recursion_limit` is the standard way to cap loops. This matters
+   because Anthropic's Converse API rejects any attempt to inject a
    "stop" message between an `AIMessage` with `tool_use` and its
-   corresponding `tool_result`. I learned that the hard way.
+   corresponding `tool_result`.
 
-The system prompt (`agent/prompts.py`) sets brevity rules and forbids
-the model from writing its own "Sources" section, because the UI renders
+The system prompt (`agent/prompts.py`) sets brevity rules and forbids the
+model from writing its own "Sources" section, since the UI renders
 citations separately. There's a regex in `graph.py` as a safety net for
 when the model writes one anyway.
+
+`AgentSession.stream_turn()` is a generator that emits `TraceStep` events
+as each LangGraph node fires. The Streamlit UI subscribes to that
+generator and renders the "thinking" trace live, which is what makes the
+agent loop visible to users instead of just a black box.
 
 ## RAG
 
@@ -85,8 +96,8 @@ Adding more is editing `config/sources.yaml` and re-running `make ingest`.
 ### Chunking
 
 `rag/chunker.py` splits by markdown header first. If a section is still
-over the token budget (default 750), it gets split by paragraph windows
-with a small overlap. Each chunk carries:
+over the token budget (default 750), it gets split into paragraph
+windows with a small overlap. Each chunk carries:
 
 - the service name (`s3`, `iam`, ...)
 - the section path (`Working with buckets > Naming rules`)
@@ -108,88 +119,107 @@ title, which looks broken.
 
 Titan Text Embeddings v2 at 1024 dimensions. FAISS `IndexFlatIP` over
 L2-normalized vectors (which is cosine similarity, just faster to
-compute). No IVF/HNSW because at 6k vectors a flat index is already
-sub-millisecond and there's no training step to get wrong.
+compute). No IVF/HNSW because at 6k vectors a flat index is sub-millisecond
+and there's no training step to get wrong.
 
-Hosted vector DBs were not the right choice for a take-home:
-
-- OpenSearch Serverless has a ~$700/mo minimum even idle.
-- Aurora pgvector serverless v2 is cheaper (~$50/mo minimum) but still
-  more than a take-home should cost.
-
-FAISS in-process means every container instance loads its own copy of
-the index into memory. That doesn't scale horizontally. For this
-submission it doesn't need to.
+The corpus easily fits in memory, so the index is loaded into every
+container instance on boot. That doesn't scale horizontally past one
+copy per task. For larger corpora the `Retriever` interface is small
+enough to swap in OpenSearch Serverless or Aurora pgvector without
+touching anything else.
 
 ## Tools
 
-Three of them. Each one exists because of a specific behavior I want
-from the agent.
+Three of them. Each one exists for a specific behavior:
 
-| Tool | Why it's there |
-| --- | --- |
-| `search_aws_docs(query, service_filter?, k?)` | The default path. The system prompt tells the agent to use this first. |
-| `fetch_aws_doc_page(url)` | Fallback for URLs the user pastes or services I haven't indexed. Host-restricted to `docs.aws.amazon.com` so the agent can't be tricked into SSRF. |
-| `list_indexed_services()` | So the agent can disclose its own scope honestly. The system prompt also lists the services, but having it as a tool means the agent can re-check after long conversations. |
+| Tool | Purpose |
+|------|---------|
+| `search_aws_docs(query, service_filter?, k?)` | Default path. The system prompt tells the agent to use this first. |
+| `fetch_aws_doc_page(url)` | Fallback for URLs the user pastes or services we haven't indexed. Host-restricted to `docs.aws.amazon.com` so the agent can't be tricked into SSRF. |
+| `list_indexed_services()` | So the agent can disclose its own scope honestly. The system prompt also lists the services, but exposing it as a tool means the agent can re-check after long conversations. |
 
 Deliberately not a tool: anything that calls AWS APIs (boto3, the CLI,
-etc). The brief was about docs Q&A, not orchestrating real
-infrastructure, and adding write tools would expand the threat model.
+etc). The agent is for documentation Q&A, not destructive ops. Adding
+write tools would expand the threat model and obscure intent.
 
 ## Infrastructure
 
-Terraform, four modules (`storage`, `ecr`, `iam`, `app_runner`). The
-notable choices:
+Terraform, four modules (`storage`, `ecr`, `iam`, `ecs_alb`).
 
-- **App Runner over ECS+ALB.** App Runner is the simplest happy path
-  for "one stateless container, public URL." ECS gives more control
-  but at the cost of VPC, ALB, target groups, security groups.
-- **IAM scoped to two model ARNs and one bucket.** Not wildcards. If
-  someone steals the role they can't enumerate Bedrock.
-- **Two-phase apply.** App Runner refuses to create a service if the
-  ECR image doesn't exist yet. The root module gates the App Runner
-  resource behind `create_app_runner`, so you `apply` once, push the
-  image, then `apply` again with the flag flipped.
-- **Cross-region inference-profile permissions.** The IAM policy
-  allows `inference-profile/*` because Claude 4.x on Bedrock requires
-  invoking through a profile (the bare model IDs reject on-demand
-  throughput).
+### Why ECS Fargate + ALB and not App Runner
 
-There's no VPC. Bedrock and S3 are reached over public AWS endpoints,
-which is fine for a public-internet Streamlit app and saves NAT money.
+App Runner was my first choice. Failed in production.
+
+App Runner's envoy proxy returns HTTP 403 on any request with
+`Upgrade: websocket`. Streamlit's reactive UI is WebSocket-only (no
+long-polling fallback), so the page HTML loads but the chat never
+connects. This is a known limitation of App Runner.
+
+ECS Fargate + Application Load Balancer is the replacement:
+
+- ALB supports WebSocket natively (Layer 7 LB, transparent upgrade).
+- Fargate handles the container scheduling without me running EC2.
+- Default VPC + default subnets means no NAT gateway, no custom
+  networking. Module is self-contained.
+
+Trade-off: ECS+ALB runs about $50/mo idle (Fargate task ~$30, ALB ~$18)
+versus App Runner's ~$60/mo. Slightly cheaper but with the proxy that
+actually works.
+
+### Notable choices in the Terraform
+
+- **Default VPC, public subnets, public IP on tasks.** Saves a NAT
+  gateway (~$30/mo). For real prod, put the tasks in private subnets
+  behind a NAT and only the ALB in public.
+- **`stickiness` enabled on the target group.** Streamlit holds a
+  WebSocket per user; if a reconnect lands on a different replica, the
+  session state is lost. Sticky cookies pin browsers to one task.
+- **`idle_timeout = 120s` on the ALB.** WebSocket connections idle
+  between user messages; the default 60s tears them down mid-chat.
+- **IAM scoped to two Bedrock models** (chat + embedding) plus
+  inference-profile ARNs, since cross-region inference is required for
+  Claude 4.x. S3 read on the index bucket only.
+- **Two-phase apply.** ECS won't start a task if the image isn't in
+  ECR yet. The root module gates ECS behind `create_app_runner`
+  (variable name kept from the App Runner attempt), so first apply
+  provisions ECR + S3 + IAM, you push the image, then second apply
+  spins up ECS.
 
 ## Things that broke during the build
 
-Useful context for whoever inherits this:
+Useful context for whoever picks this up:
 
-1. **Claude 3.5 Sonnet v2 hit EOL on Bedrock.** Had to swap to
+1. **Claude 3.5 Sonnet v2 hit EOL on Bedrock.** Swapped to
    `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. The `us.` prefix is
-   a cross-region inference profile, which newer Claude models on
-   Bedrock require.
-2. **awsdocs default branches got rotated to `archived`.** First
-   ingest run produced 0 chunks until I noticed. Now pinned to `main`.
-3. **Half the source repos I planned to use are gone or empty.**
-   Rewrote `sources.yaml` against what's actually live.
+   a cross-region inference profile, which Claude 4.x on Bedrock
+   requires.
+2. **awsdocs default branches got rotated to `archived`.** First ingest
+   produced 0 chunks until I noticed. Now pinned to `main`.
+3. **App Runner doesn't pass WebSocket upgrades.** Spent an hour
+   debugging the Streamlit XSRF / CORS config before realizing the
+   envoy proxy was the gate. Switched to ECS + ALB.
 4. **Force-finalize node violated tool_use/tool_result adjacency.** My
    first cut at the agent loop tried to inject a "stop" message when
    the tool-call budget ran out, which fails Anthropic validation. The
    fix was switching to LangGraph's `recursion_limit` and a graceful
-   fallback message.
+   fallback.
 5. **AWS doc markdown contains LaTeX-style escapes and HTML anchor
    tags.** The chunker has a small regex pass for both.
+6. **IAM in the deploying account explicitly denies
+   `iam:UpdateAssumeRolePolicy`.** Plan B was to create a separate ECS
+   task role rather than adding ECS to the existing App Runner role's
+   trust policy.
 
 ## What's not designed for, on purpose
 
 - **Multi-tenant scale.** Single FAISS file, in-process. Fine for one
   user, doesn't horizontally scale.
-- **High availability.** One App Runner instance is enough for the
-  demo. Configure `min_instances=2` if you actually care.
+- **High availability.** One ECS task at desired_count=1. Bump it for
+  real HA.
 - **Conversation persistence across restarts.** History lives in
-  process memory. LangGraph has checkpointer support if this matters
-  to you.
-- **Cost optimization.** App Runner is pay-per-second. Set
-  `app_runner_min_instances=0` if you want it to sleep, and accept
-  the ~30s cold start when the FAISS index reloads from S3.
-- **Auth.** App Runner endpoint is public. Stick Cognito or basic
-  auth in front of it before sharing the URL with anyone you don't
-  trust.
+  process memory. LangGraph has checkpointer support if needed.
+- **Cost optimization.** ALB is the surprise tax. For a hobby project
+  Lightsail Containers ($10/mo) is cheaper. Doesn't fit IaC patterns
+  as cleanly though.
+- **Auth.** Public URL. Stick Cognito + an ALB listener rule in front
+  of it before exposing to anyone untrusted.

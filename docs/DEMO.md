@@ -64,7 +64,7 @@ Expect: it declines. This is a docs Q&A agent, not a destructive ops one.
 ## Recording tips
 
 - Hide AWS account IDs from the terminal.
-- Pop open the "Thinking" status block at least once so the panel sees
+- Pop open the "Thinking" status block at least once so viewers see
   the live tool calls. That's the most visibly agentic moment.
 - Click a Sources link in one of the responses to show the docs page
   the model was actually working from.
